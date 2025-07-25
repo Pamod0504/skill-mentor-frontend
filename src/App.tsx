@@ -5,6 +5,8 @@ import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import PaymentPage from "@/pages/PaymentPage";
 import { SignedIn, SignedOut } from "@clerk/clerk-react";
+import { RoleBasedRoute } from "./components/RoleBasedRoute";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
 
 function App() {
   return (
@@ -19,6 +21,21 @@ function App() {
               <>
                 <SignedIn>
                   <DashboardPage />
+                </SignedIn>
+                <SignedOut>
+                  <LoginPage />
+                </SignedOut>
+              </>
+            }
+          />
+           <Route
+            path="/admin"
+            element={
+              <>
+                <SignedIn>
+                  <RoleBasedRoute requiredRole="admin" redirectTo="/dashboard">
+                    <AdminDashboardPage />
+                  </RoleBasedRoute>
                 </SignedIn>
                 <SignedOut>
                   <LoginPage />
