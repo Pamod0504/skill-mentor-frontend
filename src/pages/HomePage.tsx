@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@clerk/clerk-react";
 import { useEffect, useState } from "react";
 import { BACKEND_URL } from "@/config/env";
-import { MentorCard } from "@/components/MentorCard";
 import { MentorClass } from "@/lib/types";
+import { MentorCard } from "@/components/MentorCard";
 
 export default function HomePage() {
   const { isSignedIn } = useAuth();

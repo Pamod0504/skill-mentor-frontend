@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router";
-import { useAuth, SignInButton, UserButton } from "@clerk/clerk-react";
+import { useAuth, SignInButton, UserButton, useUser } from "@clerk/clerk-react";
 import SkillMentorLogo from "@/assets/logo.webp";
 import { Menu } from "lucide-react";
 import { useState } from "react";
@@ -9,7 +9,10 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 
 export function Navigation() {
   const { isSignedIn } = useAuth();
+  const { user } = useUser();
   const [isOpen, setIsOpen] = useState(false);
+
+  const isAdmin = user?.publicMetadata?.role === 'admin';
 
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (
     <nav
@@ -50,15 +53,27 @@ export function Navigation() {
     >
       {isSignedIn ? (
         <>
-          <Link
-            to="/dashboard"
-            className={cn(mobile && "w-full")}
-            onClick={() => mobile && setIsOpen(false)}
-          >
-            <Button variant="ghost" className={cn(mobile && "w-full")}>
-              Dashboard
-            </Button>
-          </Link>
+          {isAdmin ? (
+            <Link
+              to="/admin"
+              className={cn(mobile && "w-full")}
+              onClick={() => mobile && setIsOpen(false)}
+            >
+              <Button variant="ghost" className={cn(mobile && "w-full")}>
+                Admin Dashboard
+              </Button>
+            </Link>
+          ) : (
+            <Link
+              to="/dashboard"
+              className={cn(mobile && "w-full")}
+              onClick={() => mobile && setIsOpen(false)}
+            >
+              <Button variant="ghost" className={cn(mobile && "w-full")}>
+                Dashboard
+              </Button>
+            </Link>
+          )}
           <div
             className={cn(
               "flex items-center",
@@ -77,7 +92,7 @@ export function Navigation() {
       ) : (
         <>
           <SignInButton
-            forceRedirectUrl="/dashboard"
+            forceRedirectUrl="/post-login"
             mode="modal"
             appearance={{
               elements: {

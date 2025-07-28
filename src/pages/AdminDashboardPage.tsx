@@ -1,123 +1,175 @@
-import { useState } from "react";
-import { useUser } from "@clerk/clerk-react";
-import { 
-  BookOpen, 
-  UserPlus, 
-  Calendar,
-  Plus,
-  Users,
-  ClipboardList
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import CreateClassPage from "@/components/admin/CreateClassPage";
-import CreateMentorPage from "@/components/admin/CreateMentorPage";
-import ManageBookingsPage from "@/components/admin/ManageBookingsPage";
+import { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
+import { LayoutDashboard, GraduationCap, Users, Calendar } from "lucide-react";
+import { useAuth } from "@clerk/clerk-react";
+import { BACKEND_URL } from "@/config/env";
 
 
-type AdminPage = 'overview' | 'create-class' | 'create-mentor' | 'manage-bookings';
+interface AdminStats {
+  totalClasses: number;
+  totalMentors: number;
+  pendingBookings: number;
+  completedSessions: number;
+}
 
-export default function AdminDashboardPage() {
-  const { user } = useUser();
-  const [currentPage, setCurrentPage] = useState<AdminPage>('overview');
+export function AdminDashboardPage() {
+  const [stats, setStats] = useState<AdminStats>({
+    totalClasses: 0,
+    totalMentors: 0,
+    pendingBookings: 0,
+    completedSessions: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const { getToken } = useAuth();
 
-  const renderCurrentPage = () => {
-    switch (currentPage) {
-      case 'create-class':
-        return <CreateClassPage onBack={() => setCurrentPage('overview')} />;
-      case 'create-mentor':
-        return <CreateMentorPage onBack={() => setCurrentPage('overview')} />;
-      case 'manage-bookings':
-        return <ManageBookingsPage onBack={() => setCurrentPage('overview')} />;
-      default:
-        return renderOverview();
+  useEffect(() => {
+    fetchAdminStats();
+  }, []);
+
+  const fetchAdminStats = async () => {
+    try {
+      const token = await getToken({ template: "skill-mentor-auth-frontend" });
+      if (!token) return;
+
+      // Fetch classes count
+      const classesResponse = await fetch(`${BACKEND_URL}/academic/classroom`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const classesData = classesResponse.ok ? await classesResponse.json() : [];
+
+      // Fetch mentors count
+      const mentorsResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const mentorsData = mentorsResponse.ok ? await mentorsResponse.json() : [];
+
+      // Fetch sessions for bookings stats
+      const sessionsResponse = await fetch(`${BACKEND_URL}/academic/session`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const sessionsData = sessionsResponse.ok ? await sessionsResponse.json() : [];
+
+      setStats({
+        totalClasses: classesData.length,
+        totalMentors: mentorsData.length,
+        pendingBookings: sessionsData.filter((s: any) => s.session_status === "PENDING").length,
+        completedSessions: sessionsData.filter((s: any) => s.session_status === "COMPLETED").length,
+      });
+    } catch (error) {
+      console.error("Failed to fetch admin stats:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const renderOverview = () => (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          Welcome back, {user?.firstName || 'Admin'}! Manage your tutoring platform.
+  const statsArray = [
+    {
+      name: "Total Classes",
+      value: stats.totalClasses.toString(),
+      icon: GraduationCap,
+      color: "bg-blue-500",
+    },
+    {
+      name: "Total Mentors",
+      value: stats.totalMentors.toString(),
+      icon: Users,
+      color: "bg-green-500",
+    },
+    {
+      name: "Pending Bookings",
+      value: stats.pendingBookings.toString(),
+      icon: Calendar,
+      color: "bg-yellow-500",
+    },
+    {
+      name: "Completed Sessions",
+      value: stats.completedSessions.toString(),
+      icon: LayoutDashboard,
+      color: "bg-purple-500",
+    },
+  ];
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          Welcome to the admin dashboard. Here's an overview of your platform.
         </p>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Classes</CardTitle>
-            <BookOpen className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">24</div>
-            <p className="text-xs text-muted-foreground">Active tutoring classes</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Mentors</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">89</div>
-            <p className="text-xs text-muted-foreground">Registered tutors</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Bookings</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">12</div>
-            <p className="text-xs text-muted-foreground">Awaiting approval</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        {statsArray.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={stat.name} className="relative overflow-hidden">
+              <div className="p-5">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className={`w-8 h-8 ${stat.color} rounded-md flex items-center justify-center`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        {stat.name}
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {isLoading ? "..." : stat.value}
+                      </dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Admin Actions */}
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Admin Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Button
-            onClick={() => setCurrentPage('create-class')}
-            className="h-24 flex flex-col items-center justify-center space-y-2 bg-blue-600 hover:bg-blue-700"
-          >
-            <Plus className="h-6 w-6" />
-            <span className="font-medium">Create Class</span>
-            <span className="text-xs opacity-90">Add new tutoring class</span>
-          </Button>
+      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <Card>
+          <div className="p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <p className="text-sm text-gray-600">New mentor "John Doe" was added</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <p className="text-sm text-gray-600">Class "A/L Mathematics" was created</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                <p className="text-sm text-gray-600">5 new bookings pending approval</p>
+              </div>
+            </div>
+          </div>
+        </Card>
 
-          <Button
-            onClick={() => setCurrentPage('create-mentor')}
-            className="h-24 flex flex-col items-center justify-center space-y-2 bg-green-600 hover:bg-green-700"
-          >
-            <UserPlus className="h-6 w-6" />
-            <span className="font-medium">Create Mentor</span>
-            <span className="text-xs opacity-90">Add new tutor</span>
-          </Button>
+        <Card>
+          <div className="p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+            <div className="space-y-3">
+              <button className="w-full text-left p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="font-medium text-gray-900">Create New Class</div>
+                <div className="text-sm text-gray-500">Add a new tutoring class</div>
+              </button>
+              <button className="w-full text-left p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="font-medium text-gray-900">Add New Mentor</div>
+                <div className="text-sm text-gray-500">Register a new mentor</div>
+              </button>
+              <button className="w-full text-left p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="font-medium text-gray-900">Review Bookings</div>
+                <div className="text-sm text-gray-500">Manage pending bookings</div>
+              </button>
+            </div>
+          </div>
+        </Card>
 
-          <Button
-            onClick={() => setCurrentPage('manage-bookings')}
-            className="h-24 flex flex-col items-center justify-center space-y-2 bg-purple-600 hover:bg-purple-700"
-          >
-            <ClipboardList className="h-6 w-6" />
-            <span className="font-medium">Manage Bookings</span>
-            <span className="text-xs opacity-90">View and approve sessions</span>
-          </Button>
-        </div>
+      
       </div>
-    </div>
-  );
-
-  return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {renderCurrentPage()}
     </div>
   );
 }
