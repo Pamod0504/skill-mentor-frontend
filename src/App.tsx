@@ -7,11 +7,12 @@ import PaymentPage from "@/pages/PaymentPage";
 import PostLoginRedirect from "@/pages/PostLoginRedirect";
 import { AdminLayout } from "@/components/AdminLayout";
 import { AdminDashboardPage } from "@/pages/AdminDashboardPage";
-import { CreateClassPage } from "@/pages/CreateClassPage";
 import { CreateMentorPage } from "@/pages/CreateMentorPage";
 import { ManageBookingsPage } from "@/pages/ManageBookingsPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { SignedIn, SignedOut } from "@clerk/clerk-react";
+import { CreateClassPage } from "./pages/CreateClassPage";
+
 
 function App() {
   return (
@@ -52,7 +53,7 @@ function App() {
         <Route
           path="/admin"
           element={
-            <ProtectedRoute requiredRole="admin" redirectTo="/dashboard">
+            <ProtectedRoute requiredRole="ADMIN" redirectTo="/dashboard">
               <AdminLayout />
             </ProtectedRoute>
           }

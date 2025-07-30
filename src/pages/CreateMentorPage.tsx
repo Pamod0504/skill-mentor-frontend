@@ -124,7 +124,7 @@ export function CreateMentorPage() {
       
       if (userRole !== 'admin') {
         console.warn("User role is not admin:", userRole);
-        console.warn("Continuing despite non-admin role for debugging...");
+        throw new Error("You must have admin privileges to create mentors. Please contact an administrator.");
       }
 
       // Validate required fields
@@ -137,6 +137,15 @@ export function CreateMentorPage() {
       if (!formData.email.trim()) {
         throw new Error("Email is required");
       }
+      if (!formData.phoneNumber.trim()) {
+        throw new Error("Phone number is required");
+      }
+      if (!formData.address.trim()) {
+        throw new Error("Address is required");
+      }
+      if (!formData.title.trim()) {
+        throw new Error("Title is required");
+      }
       if (!formData.sessionFee || isNaN(parseFloat(formData.sessionFee))) {
         throw new Error("Valid session fee is required");
       }
@@ -145,6 +154,12 @@ export function CreateMentorPage() {
       }
       if (!formData.subject.trim()) {
         throw new Error("Subject is required");
+      }
+      if (!formData.qualification.trim()) {
+        throw new Error("Qualification is required");
+      }
+      if (formData.selectedClasses.length === 0) {
+        throw new Error("At least one class must be selected");
       }
 
       // Try different token approaches like in CreateClassPage
@@ -237,90 +252,78 @@ export function CreateMentorPage() {
         }
       }
 
-      const mentorData = {
-        first_name: formData.firstName,
-        last_name: formData.lastName,
-        address: formData.address,
-        email: formData.email,
-        title: formData.title,
-        session_fee: parseFloat(formData.sessionFee),
-        profession: formData.profession,
-        subject: formData.subject,
-        phone_number: formData.phoneNumber,
-        qualification: formData.qualification,
-        mentor_image: imageUrl,
-      };
-
-      console.log("Creating mentor with data:", mentorData);
-      console.log("Backend URL:", `${BACKEND_URL}/academic/mentor`);
-
-      const mentorResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(mentorData),
-      });
-
-      console.log("Mentor creation response status:", mentorResponse.status);
-      console.log("Mentor creation response headers:", Object.fromEntries(mentorResponse.headers.entries()));
-
-      if (!mentorResponse.ok) {
-        let errorText;
-        try {
-          errorText = await mentorResponse.text();
-        } catch (e) {
-          errorText = "Could not read error response";
-        }
-        console.error("Mentor creation error response:", errorText);
-        console.error("Full mentor creation response details:", {
-          status: mentorResponse.status,
-          statusText: mentorResponse.statusText,
-          url: mentorResponse.url,
-          headers: Object.fromEntries(mentorResponse.headers.entries())
-        });
-        throw new Error(`Failed to create mentor: ${mentorResponse.status} - ${errorText}`);
+      // Ensure we have an image URL (required by DTO)
+      if (!imageUrl) {
+        imageUrl = ""; // Set empty string as default since DTO requires non-null
       }
 
-      const mentor = await mentorResponse.json();
-      console.log("Mentor created successfully:", mentor);
+      // Create mentors for each selected class (since DTO expects one class_room_id per mentor)
+      const createdMentors = [];
+      
+      for (const classId of formData.selectedClasses) {
+        const mentorData = {
+          clerk_mentor_id: user.id, // Changed from clerk_id to clerk_mentor_id
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          address: formData.address,
+          email: formData.email,
+          title: formData.title,
+          session_fee: parseFloat(formData.sessionFee),
+          profession: formData.profession,
+          subject: formData.subject,
+          phone_number: formData.phoneNumber,
+          qualification: formData.qualification,
+          mentor_image: imageUrl,
+          class_room_id: classId, // Include class_room_id as required by DTO
+        };
 
-      // Assign mentor to selected classes
-      if (formData.selectedClasses.length > 0) {
-        console.log("Assigning mentor to classes:", formData.selectedClasses);
-        
-        for (const classId of formData.selectedClasses) {
+        console.log("Creating mentor with data:", mentorData);
+        console.log("Backend URL:", `${BACKEND_URL}/academic/mentor`);
+
+        const mentorResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(mentorData),
+        });
+
+        console.log("Mentor creation response status:", mentorResponse.status);
+        console.log("Mentor creation response headers:", Object.fromEntries(mentorResponse.headers.entries()));
+
+        if (!mentorResponse.ok) {
+          let errorText;
           try {
-            const classAssignResponse = await fetch(`${BACKEND_URL}/academic/mentor-class`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                mentor_id: mentor.mentor_id,
-                class_room_id: classId,
-              }),
-            });
-
-            if (!classAssignResponse.ok) {
-              const errorText = await classAssignResponse.text();
-              console.error(`Failed to assign mentor to class ${classId}:`, errorText);
-              // Continue with other classes instead of failing completely
+            // Try to get error message from response body
+            const contentType = mentorResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const errorData = await mentorResponse.json();
+              errorText = errorData.message || errorData.error || JSON.stringify(errorData);
             } else {
-              console.log(`Successfully assigned mentor to class ${classId}`);
+              errorText = await mentorResponse.text();
             }
-          } catch (error) {
-            console.error(`Error assigning mentor to class ${classId}:`, error);
-            // Continue with other classes
+          } catch (e) {
+            errorText = `HTTP ${mentorResponse.status} - ${mentorResponse.statusText}`;
           }
+          console.error("Mentor creation error response:", errorText);
+          console.error("Full mentor creation response details:", {
+            status: mentorResponse.status,
+            statusText: mentorResponse.statusText,
+            url: mentorResponse.url,
+            headers: Object.fromEntries(mentorResponse.headers.entries())
+          });
+          throw new Error(`Failed to create mentor for class ${classId}: ${mentorResponse.status} - ${errorText}`);
         }
+
+        const mentor = await mentorResponse.json();
+        console.log("Mentor created successfully:", mentor);
+        createdMentors.push(mentor);
       }
 
       toast({
         title: "Success",
-        description: "Mentor created and assigned to classes successfully!",
+        description: `Mentor created successfully for ${createdMentors.length} class(es)!`,
       });
 
       // Reset form
@@ -455,11 +458,12 @@ export function CreateMentorPage() {
               </div>
 
               <div>
-                <Label htmlFor="title">Title</Label>
+                <Label htmlFor="title">Title *</Label>
                 <Input
                   id="title"
                   name="title"
                   type="text"
+                  required
                   value={formData.title}
                   onChange={handleChange}
                   placeholder="e.g., Mr., Ms., Dr."
@@ -599,7 +603,7 @@ export function CreateMentorPage() {
                 )}
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                Upload an image from your device or provide a URL for the mentor image
+                Upload an image from your device 
               </p>
             </div>
 
@@ -653,7 +657,7 @@ export function CreateMentorPage() {
               >
                 Reset
               </Button>
-              <Button type="submit" disabled={isSubmitting || formData.selectedClasses.length === 0}>
+              <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creating..." : "Create Mentor"}
               </Button>
             </div>

@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, GraduationCap, Users, Calendar } from "lucide-react";
-import { useAuth } from "@clerk/clerk-react";
 import { BACKEND_URL } from "@/config/env";
+import { useSharedAuth } from "@/hooks/useSharedAuth";
 
 
 interface AdminStats {
@@ -20,7 +20,7 @@ export function AdminDashboardPage() {
     completedSessions: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const { getToken } = useAuth();
+  const { getSharedToken } = useSharedAuth();
 
   useEffect(() => {
     fetchAdminStats();
@@ -28,26 +28,83 @@ export function AdminDashboardPage() {
 
   const fetchAdminStats = async () => {
     try {
-      const token = await getToken({ template: "skill-mentor-auth-frontend" });
-      if (!token) return;
+      console.log("=== ADMIN DASHBOARD TOKEN DEBUG ===");
+      
+      // Get shared token
+      const token = await getSharedToken();
+
+      // Decode and log token for debugging
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        console.log("Admin Dashboard Token payload:", payload);
+        console.log("Role in token:", payload.role);
+        console.log("Token expiry:", new Date(payload.exp * 1000));
+        console.log("Current time:", new Date());
+        console.log("Token is valid:", new Date(payload.exp * 1000) > new Date());
+      } catch (e) {
+        console.error("Could not decode token:", e);
+      }
+
+      const headers = {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      };
+
+      console.log("Request headers:", headers);
 
       // Fetch classes count
+      console.log("Fetching classes from:", `${BACKEND_URL}/academic/classroom`);
       const classesResponse = await fetch(`${BACKEND_URL}/academic/classroom`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
+      
+      console.log("Classes response status:", classesResponse.status);
+      
+      if (!classesResponse.ok) {
+        console.error("Classes fetch failed:", classesResponse.status, classesResponse.statusText);
+        const errorText = await classesResponse.text();
+        console.error("Classes error response:", errorText);
+      }
+      
       const classesData = classesResponse.ok ? await classesResponse.json() : [];
 
       // Fetch mentors count
+      console.log("Fetching mentors from:", `${BACKEND_URL}/academic/mentor`);
       const mentorsResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
+      
+      console.log("Mentors response status:", mentorsResponse.status);
+      
+      if (!mentorsResponse.ok) {
+        console.error("Mentors fetch failed:", mentorsResponse.status, mentorsResponse.statusText);
+        const errorText = await mentorsResponse.text();
+        console.error("Mentors error response:", errorText);
+      }
+      
       const mentorsData = mentorsResponse.ok ? await mentorsResponse.json() : [];
 
       // Fetch sessions for bookings stats
+      console.log("Fetching sessions from:", `${BACKEND_URL}/academic/session`);
       const sessionsResponse = await fetch(`${BACKEND_URL}/academic/session`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
+      
+      console.log("Sessions response status:", sessionsResponse.status);
+      
+      if (!sessionsResponse.ok) {
+        console.error("Sessions fetch failed:", sessionsResponse.status, sessionsResponse.statusText);
+        const errorText = await sessionsResponse.text();
+        console.error("Sessions error response:", errorText);
+      }
+      
       const sessionsData = sessionsResponse.ok ? await sessionsResponse.json() : [];
+
+      console.log("Fetched data:", {
+        classes: classesData.length,
+        mentors: mentorsData.length,
+        sessions: sessionsData.length
+      });
 
       setStats({
         totalClasses: classesData.length,
@@ -55,6 +112,8 @@ export function AdminDashboardPage() {
         pendingBookings: sessionsData.filter((s: any) => s.session_status === "PENDING").length,
         completedSessions: sessionsData.filter((s: any) => s.session_status === "COMPLETED").length,
       });
+
+      console.log("=== END ADMIN DASHBOARD DEBUG ===");
     } catch (error) {
       console.error("Failed to fetch admin stats:", error);
     } finally {

@@ -16,7 +16,7 @@ export default function DashboardPage() {
   // Check if user is admin and redirect to admin dashboard
   useEffect(() => {
     if (isLoaded && isSignedIn && user) {
-      if (user.publicMetadata?.role === 'admin') {
+      if (user.publicMetadata?.role === 'ADMIN') {
         router('/admin');
         return;
       }
@@ -38,7 +38,8 @@ export default function DashboardPage() {
       });
 
       // Try different token approaches
-      let token = await getToken();
+      let token = await getToken({ template: "skill-mentor-auth-frontend" });
+      // let token = await getToken();
       console.log("Token without template:", token ? "Token received" : "No token");
       console.log("Token without template length:", token?.length);
       if (token) {

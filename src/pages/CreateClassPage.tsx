@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/hooks/use-toast";
-import { useAuth, useUser } from "@clerk/clerk-react";
 import { BACKEND_URL } from "@/config/env";
-import { GraduationCap, Upload, Link, Image as ImageIcon, CheckCircle, AlertCircle } from "lucide-react";
+import { GraduationCap, Upload, Link, Image as ImageIcon } from "lucide-react";
+import { useSharedAuth } from "@/hooks/useSharedAuth";
 
 interface ClassRoomDTO {
   class_room_id?: number;
@@ -25,8 +25,8 @@ export function CreateClassPage() {
   const [imagePreview, setImagePreview] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const { getToken } = useAuth();
-  const { user, isLoaded } = useUser();
+  const { getSharedToken } = useSharedAuth();
+  
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -62,74 +62,7 @@ export function CreateClassPage() {
     });
   };
 
-  const validateUserPermissions = (): void => {
-    if (!isLoaded) {
-      throw new Error("Authentication is loading...");
-    }
-    
-    if (!user) {
-      throw new Error("You must be logged in to create classes");
-    }
-    
-    const userRole = user.publicMetadata?.role;
-    if (userRole !== 'admin') {
-      throw new Error("You must be an admin to create classes");
-    }
-  };
-
-  const getAuthToken = async (): Promise<string> => {
-    console.log("=== CREATE CLASS TOKEN DEBUGGING ===");
-    
-    // Try template first
-    let token = await getToken({ template: "skill-mentor-auth-frontend" });
-    console.log("Token with template:", token ? "Token received" : "No token");
-    console.log("Token with template length:", token?.length);
-    if (token) {
-      console.log("FULL TOKEN (with template):", token);
-    }
-    
-    // Fallback to default token
-    if (!token) {
-      token = await getToken();
-      console.log("Token without template:", token ? "Token received" : "No token");
-      console.log("Token without template length:", token?.length);
-      if (token) {
-        console.log("FULL TOKEN (without template):", token);
-      }
-    }
-    
-    // Decode JWT payload for debugging
-    if (token) {
-      try {
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(atob(parts[1]));
-          console.log("JWT payload:", {
-            sub: payload.sub,
-            iss: payload.iss,
-            aud: payload.aud,
-            exp: payload.exp,
-            iat: payload.iat,
-            role: payload.role,
-            permissions: payload.permissions,
-            customClaims: Object.keys(payload).filter(key => 
-              !['sub', 'iss', 'aud', 'exp', 'iat', 'nbf', 'jti'].includes(key)
-            )
-          });
-          console.log("Token expiration:", new Date(payload.exp * 1000));
-          console.log("Token issued at:", new Date(payload.iat * 1000));
-        }
-      } catch (e) {
-        console.error("Failed to decode JWT:", e);
-      }
-    }
-    
-    if (!token) {
-      throw new Error("Authentication token not available");
-    }
-    
-    return token;
-  };
+ 
 
   const prepareRequestData = async (): Promise<ClassRoomDTO> => {
     let imageUrl = formData.classImage;
@@ -157,67 +90,36 @@ export function CreateClassPage() {
   };
 
   const createClassroom = async (requestData: ClassRoomDTO, token: string): Promise<ClassRoomDTO> => {
-    console.log("=== CREATE CLASS API REQUEST ===");
-    console.log("Request URL:", `${BACKEND_URL}/academic/classroom`);
-    console.log("Request method:", "POST");
-    console.log("Request headers:", {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token.substring(0, 20)}...`, // Only show first 20 chars for security
-      "Accept": "application/json",
-    });
+    console.log("=== CREATE CLASSROOM API DEBUG ===");
     console.log("FULL AUTHORIZATION TOKEN:", token);
-    console.log("Request body:", JSON.stringify(requestData, null, 2));
+    console.log("Request Data:", requestData);
+    
+    // Decode and log the token being sent to backend
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      console.log("TOKEN BEING SENT TO BACKEND:", payload);
+      console.log("ROLE IN TOKEN BEING SENT:", payload.role || payload.roles || "NO ROLE FOUND");
+
+    } catch (e) {
+      console.log("Could not decode token being sent to backend");
+    }
     
     const response = await fetch(`${BACKEND_URL}/academic/classroom`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`,
-        "Accept": "application/json",
       },
       body: JSON.stringify(requestData),
     });
 
-    console.log("=== CREATE CLASS API RESPONSE ===");
-    console.log("Response status:", response.status);
-    console.log("Response headers:", Object.fromEntries(response.headers.entries()));
+    console.log("Response Status:", response.status);
+    console.log("Response Headers:", Object.fromEntries(response.headers.entries()));
 
-    if (!response.ok) {
-      let errorMessage = `Server error: ${response.status}`;
-      
-      try {
-        const errorText = await response.text();
-        console.log("Error response body:", errorText);
-        if (errorText) {
-          errorMessage += ` - ${errorText}`;
-        }
-      } catch (e) {
-        console.log("Could not read error response text");
-      }
-
-      console.error("Full error response details:", {
-        status: response.status,
-        statusText: response.statusText,
-        url: response.url,
-        headers: Object.fromEntries(response.headers.entries())
-      });
-
-      switch (response.status) {
-        case 400:
-          throw new Error("Invalid class data. Please check all required fields.");
-        case 401:
-          throw new Error("Authentication failed. Please log in again.");
-        case 403:
-          throw new Error("Access denied. You need admin privileges to create classes.");
-        case 500:
-          throw new Error("Server error. Please try again later.");
-        default:
-          throw new Error(errorMessage);
-      }
-    }
+    
 
     const responseData = await response.json();
-    console.log("Success response data:", responseData);
+    console.log("=== END CREATE CLASSROOM DEBUG ===");
     return responseData;
   };
 
@@ -244,12 +146,9 @@ export function CreateClassPage() {
         throw new Error("Class name is required");
       }
 
-      // Validate user permissions
-      validateUserPermissions();
-
-      // Get authentication token
-      const token = await getAuthToken();
-
+      // Get shared token (same as admin dashboard)
+      const token = await getSharedToken();
+      
       // Prepare request data
       const requestData = await prepareRequestData();
 
@@ -267,15 +166,8 @@ export function CreateClassPage() {
     } catch (error) {
       console.error("Error creating class:", error);
       
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : "Failed to create class. Please try again.";
       
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+
     } finally {
       setIsSubmitting(false);
     }
@@ -443,31 +335,6 @@ export function CreateClassPage() {
                   <p className="mt-1 text-lg font-medium text-gray-900">
                     {formData.className || "Enter class name..."}
                   </p>
-                </div>
-
-                {/* Status Indicators */}
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    {formData.className ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 text-gray-400" />
-                    )}
-                    <span className={`text-sm ${formData.className ? 'text-green-600' : 'text-gray-500'}`}>
-                      Class name {formData.className ? 'provided' : 'required'}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    {(imagePreview || formData.classImage) ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <AlertCircle className="h-4 w-4 text-gray-400" />
-                    )}
-                    <span className={`text-sm ${(imagePreview || formData.classImage) ? 'text-green-600' : 'text-gray-500'}`}>
-                      Image {(imagePreview || formData.classImage) ? 'provided' : 'optional'}
-                    </span>
-                  </div>
                 </div>
               </div>
             </div>
