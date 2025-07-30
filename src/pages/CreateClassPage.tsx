@@ -13,7 +13,6 @@ interface ClassRoomDTO {
   title: string;
   enrolled_student_count: number;
   class_image: string;
-  mentor?: any;
 }
 
 export function CreateClassPage() {
@@ -26,22 +25,19 @@ export function CreateClassPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const { getSharedToken } = useSharedAuth();
-  
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      
-      // Create preview URL
+
       const reader = new FileReader();
       reader.onload = (e) => {
         setImagePreview(e.target?.result as string);
       };
       reader.readAsDataURL(file);
-      
-      // Clear the URL input if a file is selected
-      setFormData(prev => ({
+
+      setFormData((prev) => ({
         ...prev,
         classImage: "",
       }));
@@ -52,27 +48,23 @@ export function CreateClassPage() {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const base64String = reader.result as string;
-        resolve(base64String);
+        resolve(reader.result as string);
       };
       reader.onerror = () => {
-        reject(new Error('Failed to read file'));
+        reject(new Error("Failed to read file"));
       };
       reader.readAsDataURL(file);
     });
   };
 
- 
-
   const prepareRequestData = async (): Promise<ClassRoomDTO> => {
     let imageUrl = formData.classImage;
 
-    // Handle file upload if selected
     if (selectedFile) {
       try {
         imageUrl = await convertFileToBase64(selectedFile);
       } catch (error) {
-        console.error('Image upload failed:', error);
+        console.error("Image upload failed:", error);
         toast({
           title: "Warning",
           description: "Failed to process image, creating class without image.",
@@ -81,7 +73,6 @@ export function CreateClassPage() {
       }
     }
 
-    // Prepare data matching backend DTO structure
     return {
       title: formData.className.trim(),
       enrolled_student_count: 0,
@@ -89,26 +80,19 @@ export function CreateClassPage() {
     };
   };
 
-  const createClassroom = async (requestData: ClassRoomDTO, token: string): Promise<ClassRoomDTO> => {
+  const createClassroom = async (
+    requestData: ClassRoomDTO,
+    token: string
+  ): Promise<ClassRoomDTO> => {
     console.log("=== CREATE CLASSROOM API DEBUG ===");
-    console.log("FULL AUTHORIZATION TOKEN:", token);
+    console.log("Token:", token);
     console.log("Request Data:", requestData);
-    
-    // Decode and log the token being sent to backend
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      console.log("TOKEN BEING SENT TO BACKEND:", payload);
-      console.log("ROLE IN TOKEN BEING SENT:", payload.role || payload.roles || "NO ROLE FOUND");
 
-    } catch (e) {
-      console.log("Could not decode token being sent to backend");
-    }
-    
     const response = await fetch(`${BACKEND_URL}/academic/classroom`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(requestData),
     });
@@ -116,24 +100,32 @@ export function CreateClassPage() {
     console.log("Response Status:", response.status);
     console.log("Response Headers:", Object.fromEntries(response.headers.entries()));
 
-    
+    if (response.status === 403) {
+      throw new Error("Forbidden: You do not have permission to create a class.");
+    }
 
-    const responseData = await response.json();
-    console.log("=== END CREATE CLASSROOM DEBUG ===");
-    return responseData;
+    if (!response.ok) {
+      try {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create class");
+      } catch {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    }
+
+    return response.json();
   };
 
-  const resetForm = (): void => {
+  const resetForm = () => {
     setFormData({
       className: "",
       classImage: "",
     });
     setSelectedFile(null);
     setImagePreview("");
-    
-    // Reset file input
-    const fileInput = document.getElementById('imageFile') as HTMLInputElement;
-    if (fileInput) fileInput.value = '';
+
+    const fileInput = document.getElementById("imageFile") as HTMLInputElement;
+    if (fileInput) fileInput.value = "";
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -141,33 +133,31 @@ export function CreateClassPage() {
     setIsSubmitting(true);
 
     try {
-      // Validate form input
       if (!formData.className.trim()) {
         throw new Error("Class name is required");
       }
 
-      // Get shared token (same as admin dashboard)
       const token = await getSharedToken();
-      
-      // Prepare request data
-      const requestData = await prepareRequestData();
+      if (!token) {
+        throw new Error("You must be logged in to create a class.");
+      }
 
-      // Create classroom via API
+      const requestData = await prepareRequestData();
       const responseData = await createClassroom(requestData, token);
 
-      // Success handling
       toast({
         title: "Success",
         description: `Class "${responseData.title}" created successfully!`,
       });
 
       resetForm();
-
-    } catch (error) {
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create class. Please try again.",
+        variant: "destructive",
+      });
       console.error("Error creating class:", error);
-      
-      
-
     } finally {
       setIsSubmitting(false);
     }
@@ -175,7 +165,7 @@ export function CreateClassPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
@@ -183,7 +173,7 @@ export function CreateClassPage() {
 
   return (
     <div>
-      {/* Header Section */}
+      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
@@ -191,22 +181,18 @@ export function CreateClassPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Create New Class</h1>
-            <p className="text-sm text-gray-600">
-              Add a new tutoring class to the platform
-            </p>
+            <p className="text-sm text-gray-600">Add a new tutoring class to the platform</p>
           </div>
         </div>
       </div>
 
-      {/* Main Form Card */}
+      {/* Main Form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
           <Card>
             <div className="p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-6">Class Information</h3>
-              
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Class Name Field */}
                 <div>
                   <Label htmlFor="className" className="text-sm font-medium text-gray-700">
                     Class Name *
@@ -221,38 +207,23 @@ export function CreateClassPage() {
                     placeholder="e.g., A/L Biology, O/L Mathematics"
                     className="mt-2"
                   />
-                  <p className="mt-1 text-sm text-gray-500">
-                    Enter a descriptive name for your tutoring class
-                  </p>
+                  <p className="mt-1 text-sm text-gray-500">Enter a descriptive name for your tutoring class</p>
                 </div>
 
-                {/* Image Upload Section */}
                 <div>
                   <Label className="text-sm font-medium text-gray-700">Class Image</Label>
-                  
-                  {/* Upload Options */}
                   <div className="mt-2 space-y-4">
-                    {/* File Upload Card */}
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
                       <Upload className="mx-auto h-12 w-12 text-gray-400" />
                       <div className="mt-4">
                         <Label htmlFor="imageFile" className="cursor-pointer">
-                          <span className="text-sm font-medium text-blue-600 hover:text-blue-500">
-                            Upload a file
-                          </span>
-                          <input
-                            id="imageFile"
-                            type="file"
-                            accept="image/*"
-                            onChange={handleFileChange}
-                            className="sr-only"
-                          />
+                          <span className="text-sm font-medium text-blue-600 hover:text-blue-500">Upload a file</span>
+                          <input id="imageFile" type="file" accept="image/*" onChange={handleFileChange} className="sr-only" />
                         </Label>
                         <p className="text-sm text-gray-500 mt-1">PNG, JPG, GIF up to 10MB</p>
                       </div>
                     </div>
 
-                    {/* OR Divider */}
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
                         <div className="w-full border-t border-gray-300" />
@@ -262,7 +233,6 @@ export function CreateClassPage() {
                       </div>
                     </div>
 
-                    {/* URL Input */}
                     <div>
                       <div className="flex rounded-md shadow-sm">
                         <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
@@ -283,14 +253,8 @@ export function CreateClassPage() {
                   </div>
                 </div>
 
-                {/* Form Actions */}
                 <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={resetForm}
-                    disabled={isSubmitting}
-                  >
+                  <Button type="button" variant="outline" onClick={resetForm} disabled={isSubmitting}>
                     Reset
                   </Button>
                   <Button type="submit" disabled={isSubmitting} className="bg-blue-500 hover:bg-blue-600">
@@ -302,23 +266,19 @@ export function CreateClassPage() {
           </Card>
         </div>
 
-        {/* Preview Sidebar */}
         <div className="lg:col-span-1">
           <Card>
             <div className="p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Preview</h3>
-              
-              {/* Preview Content */}
               <div className="space-y-4">
-                {/* Image Preview */}
                 <div className="aspect-video bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center">
-                  {(imagePreview || formData.classImage) ? (
+                  {imagePreview || formData.classImage ? (
                     <img
                       src={imagePreview || formData.classImage}
                       alt="Class preview"
                       className="w-full h-full object-cover rounded-lg"
                       onError={(e) => {
-                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.style.display = "none";
                       }}
                     />
                   ) : (
@@ -329,18 +289,14 @@ export function CreateClassPage() {
                   )}
                 </div>
 
-                {/* Class Name Preview */}
                 <div>
                   <Label className="text-sm font-medium text-gray-700">Class Name</Label>
-                  <p className="mt-1 text-lg font-medium text-gray-900">
-                    {formData.className || "Enter class name..."}
-                  </p>
+                  <p className="mt-1 text-lg font-medium text-gray-900">{formData.className || "Enter class name..."}</p>
                 </div>
               </div>
             </div>
           </Card>
 
-          {/* Help Card */}
           <Card className="mt-6">
             <div className="p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Guidelines</h3>

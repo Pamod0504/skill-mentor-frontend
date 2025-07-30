@@ -8,7 +8,7 @@ export function useRoleBasedRedirect() {
 
   useEffect(() => {
     if (isLoaded && user) {
-      if (user.publicMetadata?.role === 'admin') {
+      if (user.publicMetadata?.role === 'ADMIN') {
         navigate('/admin');
       } else {
         navigate('/dashboard');
