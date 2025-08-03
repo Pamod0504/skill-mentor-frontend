@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/hooks/use-toast";
-import { useAuth, useUser } from "@clerk/clerk-react";
+import { useUser } from "@clerk/clerk-react";
 import { BACKEND_URL } from "@/config/env";
+import { useSharedAuth } from "@/hooks/useSharedAuth";
 
 interface Class {
   class_room_id: number;
@@ -14,6 +15,7 @@ interface Class {
 
 export function CreateMentorPage() {
   const [formData, setFormData] = useState({
+    clerkMentorId: "",
     firstName: "",
     lastName: "",
     address: "",
@@ -32,7 +34,7 @@ export function CreateMentorPage() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const { getToken } = useAuth();
+  const { getSharedToken } = useSharedAuth();
   const { user, isLoaded } = useUser();
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export function CreateMentorPage() {
 
   const fetchClasses = async () => {
     try {
-      const token = await getToken({ template: "skill-mentor-auth-frontend" });
+      const token = await getSharedToken();
       if (!token) return;
 
       const response = await fetch(`${BACKEND_URL}/academic/classroom`, {
@@ -119,15 +121,18 @@ export function CreateMentorPage() {
       console.log("Checking user role:", {
         userRole,
         publicMetadata: user.publicMetadata,
-        isAdmin: userRole === 'admin'
+        isAdmin: userRole === 'ADMIN'
       });
       
-      if (userRole !== 'admin') {
+      if (userRole !== 'ADMIN') {
         console.warn("User role is not admin:", userRole);
         throw new Error("You must have admin privileges to create mentors. Please contact an administrator.");
       }
 
       // Validate required fields
+      if (!formData.clerkMentorId.trim()) {
+        throw new Error("Clerk Mentor ID is required");
+      }
       if (!formData.firstName.trim()) {
         throw new Error("First name is required");
       }
@@ -163,77 +168,13 @@ export function CreateMentorPage() {
       }
 
       // Try different token approaches like in CreateClassPage
-      let token = await getToken();
-      console.log("Token without template:", token ? "Token received" : "No token");
+      const token = await getSharedToken();
+      console.log("=== CREATE MENTOR TOKEN DEBUG ===");
+      console.log("Token:", token);
+      console.log("Token length:", token?.length);
       
       if (!token) {
-        token = await getToken({ template: "skill-mentor-auth-frontend" });
-        console.log("Token with template:", token ? "Token received" : "No token");
-      }
-      
-      // If still no token, try other approaches
-      if (!token) {
-        console.log("Trying alternative token approaches...");
-        try {
-          token = await getToken({ template: "default" });
-          console.log("Token with 'default' template:", token ? "Token received" : "No token");
-        } catch (e) {
-          console.log("Default template failed:", e);
-        }
-      }
-      
-      console.log("Final token length:", token?.length);
-      
-      // Decode JWT payload for debugging
-      if (token) {
-        try {
-          const parts = token.split('.');
-          if (parts.length === 3) {
-            const payload = JSON.parse(atob(parts[1]));
-            console.log("JWT payload:", {
-              sub: payload.sub,
-              iss: payload.iss,
-              aud: payload.aud,
-              exp: payload.exp,
-              iat: payload.iat,
-              role: payload.role,
-              permissions: payload.permissions,
-              customClaims: Object.keys(payload).filter(key => 
-                !['sub', 'iss', 'aud', 'exp', 'iat', 'nbf', 'jti'].includes(key)
-              )
-            });
-          }
-        } catch (e) {
-          console.error("Failed to decode JWT:", e);
-        }
-      }
-      
-      if (!token) {
-        throw new Error("No authentication token available");
-      }
-
-      // Test authentication by trying to fetch existing mentors first
-      console.log("Testing authentication with GET request...");
-      try {
-        const testResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        console.log("GET test response status:", testResponse.status);
-        if (testResponse.ok) {
-          const testData = await testResponse.json();
-          console.log("GET test successful, existing mentors:", testData.length);
-        } else {
-          const errorText = await testResponse.text();
-          console.error("GET test failed:", testResponse.status, errorText);
-          if (testResponse.status === 403) {
-            console.error("GET request also returns 403 - authentication issue confirmed");
-          }
-        }
-      } catch (error) {
-        console.error("GET test error:", error);
+        throw new Error("You must be logged in to create a mentor.");
       }
 
       let imageUrl = formData.mentorImage;
@@ -262,7 +203,7 @@ export function CreateMentorPage() {
       
       for (const classId of formData.selectedClasses) {
         const mentorData = {
-          clerk_mentor_id: user.id, // Changed from clerk_id to clerk_mentor_id
+          clerk_mentor_id: formData.clerkMentorId.trim(), // Use manual input instead of user.id
           first_name: formData.firstName,
           last_name: formData.lastName,
           address: formData.address,
@@ -278,7 +219,6 @@ export function CreateMentorPage() {
         };
 
         console.log("Creating mentor with data:", mentorData);
-        console.log("Backend URL:", `${BACKEND_URL}/academic/mentor`);
 
         const mentorResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
           method: "POST",
@@ -289,45 +229,62 @@ export function CreateMentorPage() {
           body: JSON.stringify(mentorData),
         });
 
-        console.log("Mentor creation response status:", mentorResponse.status);
-        console.log("Mentor creation response headers:", Object.fromEntries(mentorResponse.headers.entries()));
-
         if (!mentorResponse.ok) {
-          let errorText;
-          try {
-            // Try to get error message from response body
-            const contentType = mentorResponse.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-              const errorData = await mentorResponse.json();
-              errorText = errorData.message || errorData.error || JSON.stringify(errorData);
-            } else {
-              errorText = await mentorResponse.text();
-            }
-          } catch (e) {
-            errorText = `HTTP ${mentorResponse.status} - ${mentorResponse.statusText}`;
-          }
-          console.error("Mentor creation error response:", errorText);
-          console.error("Full mentor creation response details:", {
-            status: mentorResponse.status,
-            statusText: mentorResponse.statusText,
-            url: mentorResponse.url,
-            headers: Object.fromEntries(mentorResponse.headers.entries())
-          });
-          throw new Error(`Failed to create mentor for class ${classId}: ${mentorResponse.status} - ${errorText}`);
+          const errorText = await mentorResponse.text();
+          throw new Error(`HTTP error! status: ${mentorResponse.status} - ${errorText}`);
         }
 
-        const mentor = await mentorResponse.json();
+        // Handle response parsing with fallback
+        let mentor;
+        const responseText = await mentorResponse.text();
+        
+        if (!responseText.trim()) {
+          // If response is empty, create a success response
+          mentor = {
+            first_name: mentorData.first_name,
+            last_name: mentorData.last_name,
+            clerk_mentor_id: mentorData.clerk_mentor_id,
+            class_room_id: mentorData.class_room_id,
+          };
+        } else {
+          try {
+            mentor = JSON.parse(responseText);
+          } catch (parseError) {
+            // If JSON parsing fails but request was successful, create a fallback response
+            mentor = {
+              first_name: mentorData.first_name,
+              last_name: mentorData.last_name,
+              clerk_mentor_id: mentorData.clerk_mentor_id,
+              class_room_id: mentorData.class_room_id,
+            };
+          }
+        }
+
         console.log("Mentor created successfully:", mentor);
         createdMentors.push(mentor);
       }
 
+      // Show detailed success message
+      const mentorName = `${formData.firstName} ${formData.lastName}`;
+      const classNames = formData.selectedClasses.map(classId => {
+        const foundClass = classes.find(c => c.class_room_id === classId);
+        return foundClass ? foundClass.title : `Class ${classId}`;
+      }).join(", ");
+
       toast({
-        title: "Success",
-        description: `Mentor created successfully for ${createdMentors.length} class(es)!`,
+        title: "🎉 Mentor Created Successfully!",
+        description: `${mentorName} has been successfully created and assigned to: ${classNames}`,
+      });
+
+      console.log("✅ Mentor creation completed successfully:", {
+        mentorName,
+        classesAssigned: classNames,
+        totalMentors: createdMentors.length
       });
 
       // Reset form
       setFormData({
+        clerkMentorId: "",
         firstName: "",
         lastName: "",
         address: "",
@@ -346,30 +303,10 @@ export function CreateMentorPage() {
     } catch (error) {
       console.error("Error creating mentor:", error);
       
-      // More specific error messages
-      let errorMessage = "Failed to create mentor. Please try again.";
+      // Handle specific error types
+     
       
-      if (error instanceof Error) {
-        if (error.message.includes("403")) {
-          errorMessage = "Authentication failed. Please log in again.";
-        } else if (error.message.includes("401")) {
-          errorMessage = "Unauthorized. Please check your permissions.";
-        } else if (error.message.includes("400")) {
-          errorMessage = "Invalid data provided. Please check all fields.";
-        } else if (error.message.includes("500")) {
-          errorMessage = "Server error. Please try again later.";
-        } else if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error. Please check your connection.";
-        } else if (error.message.includes("required") || error.message.includes("Valid")) {
-          errorMessage = error.message; // Show validation errors directly
-        }
-      }
-      
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+    
     } finally {
       setIsSubmitting(false);
     }
@@ -404,6 +341,23 @@ export function CreateMentorPage() {
       <Card className="max-w-4xl">
         <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <Label htmlFor="clerkMentorId">Clerk Mentor ID *</Label>
+              <Input
+                id="clerkMentorId"
+                name="clerkMentorId"
+                type="text"
+                required
+                value={formData.clerkMentorId}
+                onChange={handleChange}
+                placeholder="Enter the Clerk user ID for this mentor"
+                className="mt-1"
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                The Clerk user ID that will be associated with this mentor
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="firstName">First Name *</Label>
@@ -635,6 +589,7 @@ export function CreateMentorPage() {
                 variant="outline"
                 onClick={() => {
                   setFormData({
+                    clerkMentorId: "",
                     firstName: "",
                     lastName: "",
                     address: "",

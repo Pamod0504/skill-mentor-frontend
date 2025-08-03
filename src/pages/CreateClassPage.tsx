@@ -17,8 +17,8 @@ interface ClassRoomDTO {
 
 export function CreateClassPage() {
   const [formData, setFormData] = useState({
-    className: "",
-    classImage: "",
+    title: "",
+    class_image: "",
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -39,7 +39,7 @@ export function CreateClassPage() {
 
       setFormData((prev) => ({
         ...prev,
-        classImage: "",
+        class_image: "",
       }));
     }
   };
@@ -58,7 +58,7 @@ export function CreateClassPage() {
   };
 
   const prepareRequestData = async (): Promise<ClassRoomDTO> => {
-    let imageUrl = formData.classImage;
+    let imageUrl = formData.class_image;
 
     if (selectedFile) {
       try {
@@ -74,7 +74,7 @@ export function CreateClassPage() {
     }
 
     return {
-      title: formData.className.trim(),
+      title: formData.title.trim(),
       enrolled_student_count: 0,
       class_image: imageUrl || "",
     };
@@ -84,10 +84,6 @@ export function CreateClassPage() {
     requestData: ClassRoomDTO,
     token: string
   ): Promise<ClassRoomDTO> => {
-    console.log("=== CREATE CLASSROOM API DEBUG ===");
-    console.log("Token:", token);
-    console.log("Request Data:", requestData);
-
     const response = await fetch(`${BACKEND_URL}/academic/classroom`, {
       method: "POST",
       headers: {
@@ -97,29 +93,38 @@ export function CreateClassPage() {
       body: JSON.stringify(requestData),
     });
 
-    console.log("Response Status:", response.status);
-    console.log("Response Headers:", Object.fromEntries(response.headers.entries()));
-
-    if (response.status === 403) {
-      throw new Error("Forbidden: You do not have permission to create a class.");
-    }
-
     if (!response.ok) {
-      try {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create class");
-      } catch {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const errorText = await response.text();
+      throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
 
-    return response.json();
+    const responseText = await response.text();
+    
+    // Try to parse as JSON, if empty return a default response
+    if (!responseText.trim()) {
+      return {
+        title: requestData.title,
+        enrolled_student_count: 0,
+        class_image: requestData.class_image,
+      };
+    }
+
+    try {
+      return JSON.parse(responseText);
+    } catch (parseError) {
+      // If JSON parsing fails, return a default successful response
+      return {
+        title: requestData.title,
+        enrolled_student_count: 0,
+        class_image: requestData.class_image,
+      };
+    }
   };
 
   const resetForm = () => {
     setFormData({
-      className: "",
-      classImage: "",
+      title: "",
+      class_image: "",
     });
     setSelectedFile(null);
     setImagePreview("");
@@ -128,40 +133,51 @@ export function CreateClassPage() {
     if (fileInput) fileInput.value = "";
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setIsSubmitting(true);
 
-    try {
-      if (!formData.className.trim()) {
-        throw new Error("Class name is required");
-      }
-
-      const token = await getSharedToken();
-      if (!token) {
-        throw new Error("You must be logged in to create a class.");
-      }
-
-      const requestData = await prepareRequestData();
-      const responseData = await createClassroom(requestData, token);
-
-      toast({
-        title: "Success",
-        description: `Class "${responseData.title}" created successfully!`,
-      });
-
-      resetForm();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create class. Please try again.",
-        variant: "destructive",
-      });
-      console.error("Error creating class:", error);
-    } finally {
-      setIsSubmitting(false);
+  try {
+    if (!formData.title.trim()) {
+      throw new Error("Class title is required");
     }
-  };
+
+    const token = await getSharedToken();
+    if (!token) {
+      throw new Error("You must be logged in to create a class.");
+    }
+
+    const requestData = await prepareRequestData();
+
+    const responseData = await createClassroom(requestData, token);
+
+    // Show success message to user
+    const successMessage = responseData?.title 
+      ? `Class "${responseData.title}" created successfully!`
+      : "Class created successfully!";
+
+    // Force show the toast notification
+    toast({
+      title: "🎉 Success",
+      description: successMessage,
+      duration: 5000,
+    });
+
+    // Also show an alert as backup
+    alert(successMessage);
+    
+    resetForm();
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description: error.message || "Failed to create class. Please try again.",
+      variant: "destructive",
+    });
+    console.error("Error creating class:", error);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -169,6 +185,16 @@ export function CreateClassPage() {
       ...prev,
       [name]: value,
     }));
+
+    // Clear file selection when URL is entered
+    if (name === "class_image" && value.trim()) {
+      setSelectedFile(null);
+      setImagePreview("");
+      
+      // Clear file input
+      const fileInput = document.getElementById("imageFile") as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+    }
   };
 
   return (
@@ -194,15 +220,15 @@ export function CreateClassPage() {
               <h3 className="text-lg font-medium text-gray-900 mb-6">Class Information</h3>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <Label htmlFor="className" className="text-sm font-medium text-gray-700">
+                  <Label htmlFor="title" className="text-sm font-medium text-gray-700">
                     Class Name *
                   </Label>
                   <Input
-                    id="className"
-                    name="className"
+                    id="title"
+                    name="title"
                     type="text"
                     required
-                    value={formData.className}
+                    value={formData.title}
                     onChange={handleChange}
                     placeholder="e.g., A/L Biology, O/L Mathematics"
                     className="mt-2"
@@ -239,16 +265,18 @@ export function CreateClassPage() {
                           <Link className="h-4 w-4" />
                         </span>
                         <Input
-                          id="classImage"
-                          name="classImage"
+                          id="class_image"
+                          name="class_image"
                           type="url"
-                          value={formData.classImage}
+                          value={formData.class_image}
                           onChange={handleChange}
                           placeholder="https://example.com/image.jpg"
                           className="rounded-l-none"
-                          disabled={!!selectedFile}
                         />
                       </div>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {selectedFile ? "Clear file selection to enter URL" : "Enter image URL as alternative to file upload"}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -272,9 +300,9 @@ export function CreateClassPage() {
               <h3 className="text-lg font-medium text-gray-900 mb-4">Preview</h3>
               <div className="space-y-4">
                 <div className="aspect-video bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center">
-                  {imagePreview || formData.classImage ? (
+                  {imagePreview || formData.class_image ? (
                     <img
-                      src={imagePreview || formData.classImage}
+                      src={imagePreview || formData.class_image}
                       alt="Class preview"
                       className="w-full h-full object-cover rounded-lg"
                       onError={(e) => {
@@ -291,7 +319,7 @@ export function CreateClassPage() {
 
                 <div>
                   <Label className="text-sm font-medium text-gray-700">Class Name</Label>
-                  <p className="mt-1 text-lg font-medium text-gray-900">{formData.className || "Enter class name..."}</p>
+                  <p className="mt-1 text-lg font-medium text-gray-900">{formData.title || "Enter class name..."}</p>
                 </div>
               </div>
             </div>
