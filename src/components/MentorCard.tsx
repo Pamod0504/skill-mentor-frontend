@@ -19,6 +19,24 @@ export function MentorCard({ mentorClass }: { mentorClass: MentorClass }) {
     return null;
   }
 
+  // Debug logging for images
+  console.log("MentorCard - Image URLs:", {
+    mentorName: `${mentorClass.mentor.first_name} ${mentorClass.mentor.last_name}`,
+    classTitle: mentorClass.title,
+    mentorImage: mentorClass.mentor.mentor_image,
+    classImage: mentorClass.image_url,
+    mentorImageExists: !!mentorClass.mentor.mentor_image,
+    classImageExists: !!mentorClass.image_url,
+  });
+
+  // Test image accessibility
+  if (mentorClass.mentor.mentor_image) {
+    console.log("Testing mentor image accessibility:", mentorClass.mentor.mentor_image);
+  }
+  if (mentorClass.image_url) {
+    console.log("Testing class image accessibility:", mentorClass.image_url);
+  }
+
   // Use a simple threshold to decide if the bio is long enough
   const bioTooLong = (mentorClass.mentor.subject?.length || 0) > 200;
 
@@ -44,15 +62,30 @@ export function MentorCard({ mentorClass }: { mentorClass: MentorClass }) {
                 </p>
               </div> */}
               <div className="flex items-center space-x-2">
-                <img
-                  src={mentorClass.mentor.mentor_image}
-                  alt={mentorClass.mentor.first_name}
-                  className="size-6 object-cover object-top rounded-full"
-                />
+                {mentorClass.mentor.mentor_image ? (
+                  <img
+                    src={mentorClass.mentor.mentor_image}
+                    alt={`${mentorClass.mentor.first_name} ${mentorClass.mentor.last_name}`}
+                    className="w-8 h-8 object-cover rounded-full border"
+                    onError={(e) => {
+                      console.log("Mentor image failed to load:", mentorClass.mentor.mentor_image);
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                    onLoad={() => {
+                      console.log("Mentor image loaded successfully:", mentorClass.mentor.mentor_image);
+                    }}
+                  />
+                ) : null}
+                <div 
+                  className="w-8 h-8 bg-gradient-to-br from-gray-200 to-gray-300 rounded-full flex items-center justify-center text-xs font-semibold text-gray-700 border"
+                  style={{ display: mentorClass.mentor.mentor_image ? 'none' : 'flex' }}
+                >
+                  {mentorClass.mentor.first_name.charAt(0)}{mentorClass.mentor.last_name.charAt(0)}
+                </div>
                 <span className="text-sm">
-                  {mentorClass.mentor.first_name +
-                    " " +
-                    mentorClass.mentor.last_name}
+                  {mentorClass.mentor.first_name + " " + mentorClass.mentor.last_name}
                 </span>
               </div>
               <div className="flex items-center space-x-2 text-sm text-muted-foreground">
@@ -65,18 +98,31 @@ export function MentorCard({ mentorClass }: { mentorClass: MentorClass }) {
               </div>
             </div>
             <div className="w-36">
-              <div className="size-20 bg-muted flex items-center justify-center">
-                {mentorClass.class_image ? (
+              <div className="w-20 h-20 bg-muted rounded-lg overflow-hidden flex items-center justify-center border">
+                {mentorClass.image_url ? (
                   <img
-                    src={mentorClass.class_image}
+                    src={mentorClass.image_url}
                     alt={mentorClass.title}
-                    className="w-full h-full object-cover rounded-full"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      console.log("Class image failed to load:", mentorClass.image_url);
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                    onLoad={() => {
+                      console.log("Class image loaded successfully:", mentorClass.image_url);
+                    }}
                   />
-                ) : (
-                  <span className="text-2xl font-semibold">
-                    {mentorClass.mentor.first_name.charAt(0)}
+                ) : null}
+                <div 
+                  className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center"
+                  style={{ display: mentorClass.image_url ? 'none' : 'flex' }}
+                >
+                  <span className="text-2xl font-semibold text-blue-700">
+                    {mentorClass.title.charAt(0)}
                   </span>
-                )}
+                </div>
               </div>
             </div>
           </div>

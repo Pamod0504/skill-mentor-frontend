@@ -2,13 +2,15 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, GraduationCap, Users, Calendar } from "lucide-react";
 import { BACKEND_URL } from "@/config/env";
-import { useSharedAuth } from "@/hooks/useSharedAuth";
+import { useAuth, useUser } from "@clerk/clerk-react";
 
 
 interface AdminStats {
   totalClasses: number;
   totalMentors: number;
+  totalSessions: number;
   pendingBookings: number;
+  acceptedSessions: number;
   completedSessions: number;
 }
 
@@ -16,11 +18,14 @@ export function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats>({
     totalClasses: 0,
     totalMentors: 0,
+    totalSessions: 0,
     pendingBookings: 0,
+    acceptedSessions: 0,
     completedSessions: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const { getSharedToken } = useSharedAuth();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
 
   useEffect(() => {
     fetchAdminStats();
@@ -28,99 +33,45 @@ export function AdminDashboardPage() {
 
   const fetchAdminStats = async () => {
     try {
-      console.log("=== ADMIN DASHBOARD TOKEN DEBUG ===");
-      
-      // Get shared token
-      const token = await getSharedToken();
-
-      // Decode and log token for debugging
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        console.log("Admin Dashboard Token payload:", payload);
-        console.log("Role in token:", payload.role);
-        console.log("Token expiry:", new Date(payload.exp * 1000));
-        console.log("Current time:", new Date());
-        console.log("Token is valid:", new Date(payload.exp * 1000) > new Date());
-      } catch (e) {
-        console.error("Could not decode token:", e);
+      let token = await getToken({ template: "skill-mentor-auth-frontend" });
+      if (!token) {
+        token = await getToken();
+        console.log("token:", token);
       }
-
+    
+      if (!token) {
+        console.error("No authentication token available");
+        setIsLoading(false);
+        return;
+      }
+      
       const headers = {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       };
-
-      console.log("Request headers:", headers);
-
       // Fetch classes count
-      console.log("Fetching classes from:", `${BACKEND_URL}/academic/classroom`);
-      const classesResponse = await fetch(`${BACKEND_URL}/academic/classroom`, {
-        headers,
-      });
-      
-      console.log("Classes response status:", classesResponse.status);
-      
-      if (!classesResponse.ok) {
-        console.error("Classes fetch failed:", classesResponse.status, classesResponse.statusText);
-        const errorText = await classesResponse.text();
-        console.error("Classes error response:", errorText);
-      }
-      
+      const classesResponse = await fetch(`${BACKEND_URL}/academic/classroom`, { headers });
       const classesData = classesResponse.ok ? await classesResponse.json() : [];
-
       // Fetch mentors count
-      console.log("Fetching mentors from:", `${BACKEND_URL}/academic/mentor`);
-      const mentorsResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
-        headers,
-      });
-      
-      console.log("Mentors response status:", mentorsResponse.status);
-      
-      if (!mentorsResponse.ok) {
-        console.error("Mentors fetch failed:", mentorsResponse.status, mentorsResponse.statusText);
-        const errorText = await mentorsResponse.text();
-        console.error("Mentors error response:", errorText);
-      }
-      
+      const mentorsResponse = await fetch(`${BACKEND_URL}/academic/mentor`, { headers });
       const mentorsData = mentorsResponse.ok ? await mentorsResponse.json() : [];
-
       // Fetch sessions for bookings stats
-      console.log("Fetching sessions from:", `${BACKEND_URL}/academic/session`);
-      const sessionsResponse = await fetch(`${BACKEND_URL}/academic/session`, {
-        headers,
-      });
-      
-      console.log("Sessions response status:", sessionsResponse.status);
-      
-      if (!sessionsResponse.ok) {
-        console.error("Sessions fetch failed:", sessionsResponse.status, sessionsResponse.statusText);
-        const errorText = await sessionsResponse.text();
-        console.error("Sessions error response:", errorText);
-      }
-      
+      const sessionsResponse = await fetch(`${BACKEND_URL}/academic/session`, { headers });
       const sessionsData = sessionsResponse.ok ? await sessionsResponse.json() : [];
-
-      console.log("Fetched data:", {
-        classes: classesData.length,
-        mentors: mentorsData.length,
-        sessions: sessionsData.length
-      });
-
       setStats({
         totalClasses: classesData.length,
         totalMentors: mentorsData.length,
-        pendingBookings: sessionsData.filter((s: any) => s.session_status === "PENDING").length,
-        completedSessions: sessionsData.filter((s: any) => s.session_status === "COMPLETED").length,
+        totalSessions: sessionsData.length,
+        pendingBookings: sessionsData.filter((s: any) => s.session_status === 'PENDING').length,
+        acceptedSessions: sessionsData.filter((s: any) => s.session_status === 'ACCEPTED').length,
+        completedSessions: sessionsData.filter((s: any) => s.session_status === 'COMPLETED').length,
       });
-
-      console.log("=== END ADMIN DASHBOARD DEBUG ===");
-    } catch (error) {
-      console.error("Failed to fetch admin stats:", error);
-    } finally {
       setIsLoading(false);
+    } catch (error) {
+      setIsLoading(false);
+      console.error("Failed to fetch admin stats:", error);
     }
   };
-
   const statsArray = [
     {
       name: "Total Classes",
@@ -135,10 +86,22 @@ export function AdminDashboardPage() {
       color: "bg-green-500",
     },
     {
+      name: "Total Sessions",
+      value: stats.totalSessions.toString(),
+      icon: LayoutDashboard,
+      color: "bg-indigo-500",
+    },
+    {
       name: "Pending Bookings",
       value: stats.pendingBookings.toString(),
       icon: Calendar,
       color: "bg-yellow-500",
+    },
+    {
+      name: "Accepted Sessions",
+      value: stats.acceptedSessions.toString(),
+      icon: Calendar,
+      color: "bg-green-600",
     },
     {
       name: "Completed Sessions",
@@ -157,7 +120,7 @@ export function AdminDashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-6 lg:grid-cols-4 xl:grid-cols-4">
         {statsArray.map((stat) => {
           const Icon = stat.icon;
           return (

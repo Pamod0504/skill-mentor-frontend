@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,40 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/hooks/use-toast";
 import { useUser } from "@clerk/clerk-react";
 import { BACKEND_URL } from "@/config/env";
-import { useSharedAuth } from "@/hooks/useSharedAuth";
+import { useAuth } from "@clerk/clerk-react";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+
+const mentorFormSchema = z.object({
+  clerkMentorId: z.string().min(1, "Clerk Mentor ID is required."),
+  firstName: z.string().min(2, "First name must be at least 2 characters."),
+  lastName: z.string().min(2, "Last name must be at least 2 characters."),
+  address: z.string().min(5, "Address must be at least 5 characters."),
+  email: z.string().email("Please provide a valid email address."),
+  title: z.string().min(1, "Title is required."),
+  sessionFee: z.string().min(1, "Session fee is required.").refine(
+    (val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0,
+    "Session fee must be a valid positive number."
+  ),
+  profession: z.string().min(2, "Profession must be at least 2 characters."),
+  subject: z.string().min(10, "Subject/Bio must be at least 10 characters."),
+  phoneNumber: z.string().min(10, "Phone number must be at least 10 characters."),
+  qualification: z.string().min(5, "Qualification must be at least 5 characters."),
+  image: z.any()
+    .refine((files) => !files || files.length === 0 || files.length === 1, 'Invalid file selection.')
+    .refine((files) => !files || files.length === 0 || files[0]?.size <= MAX_FILE_SIZE, `Max file size is 5MB.`)
+    .refine(
+      (files) => !files || files.length === 0 || ACCEPTED_IMAGE_TYPES.includes(files[0]?.type),
+      '.jpg, .jpeg, .png and .webp files are accepted.'
+    )
+    .optional(),
+  selectedClasses: z.array(z.number()).min(1, "At least one class must be selected.")
+});
+
+type MentorFormData = z.infer<typeof mentorFormSchema>;
 
 interface Class {
   class_room_id: number;
@@ -14,28 +47,20 @@ interface Class {
 }
 
 export function CreateMentorPage() {
-  const [formData, setFormData] = useState({
-    clerkMentorId: "",
-    firstName: "",
-    lastName: "",
-    address: "",
-    email: "",
-    title: "",
-    sessionFee: "",
-    profession: "",
-    subject: "",
-    phoneNumber: "",
-    qualification: "",
-    mentorImage: "",
-    selectedClasses: [] as number[],
-  });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>("");
   const [classes, setClasses] = useState<Class[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const { getSharedToken } = useSharedAuth();
+  const { getToken } = useAuth();
   const { user, isLoaded } = useUser();
+  
+  const { register, handleSubmit, formState: { errors, isSubmitting }, reset, watch, control } = useForm<MentorFormData>({
+    resolver: zodResolver(mentorFormSchema),
+    defaultValues: {
+      selectedClasses: []
+    }
+  });
+
+  const imageFile = watch("image");
+  const selectedImageName = imageFile && imageFile.length > 0 ? imageFile[0].name : null;
 
   useEffect(() => {
     fetchClasses();
@@ -43,7 +68,13 @@ export function CreateMentorPage() {
 
   const fetchClasses = async () => {
     try {
-      const token = await getSharedToken();
+      let token = await getToken({ template: "skill-mentor-auth-frontend" });
+      if (!token) {
+        token = await getToken();
+      }
+      if (!token) {
+        token = await getToken({ template: "default" });
+      }
       if (!token) return;
 
       const response = await fetch(`${BACKEND_URL}/academic/classroom`, {
@@ -60,46 +91,104 @@ export function CreateMentorPage() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      
-      // Create preview URL
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-      
-      // Clear the URL input if a file is selected
-      setFormData(prev => ({
-        ...prev,
-        mentorImage: "",
-      }));
+  // API function to upload file
+  const uploadFile = async (file: File) => {
+    let token = await getToken({ template: "skill-mentor-auth-frontend" });
+    if (!token) {
+      token = await getToken();
     }
-  };
+    if (!token) {
+      token = await getToken({ template: "default" });
+    }
+    if (!token) {
+      throw new Error("No authentication token available");
+    }
 
-  const uploadImage = async (file: File): Promise<string> => {
-    // Convert to base64 for demo purposes
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64String = reader.result as string;
-        resolve(base64String);
-      };
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-      reader.readAsDataURL(file);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${BACKEND_URL}/files/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+    }
+
+    return response.json();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+  // API function to create mentor
+  const createMentor = async (mentorData: {
+    clerkMentorId: string;
+    firstName: string;
+    lastName: string;
+    address: string;
+    email: string;
+    title: string;
+    sessionFee: number;
+    profession: string;
+    subject: string;
+    phoneNumber: string;
+    qualification: string;
+    imageUrl: string;
+    classId: number;
+  }) => {
+    let token = await getToken({ template: "skill-mentor-auth-frontend" });
+    if (!token) {
+      token = await getToken();
+    }
+    if (!token) {
+      token = await getToken({ template: "default" });
+    }
+    if (!token) {
+      throw new Error("No authentication token available");
+    }
 
+    const requestBody = {
+      clerk_mentor_id: mentorData.clerkMentorId,
+      first_name: mentorData.firstName,
+      last_name: mentorData.lastName,
+      address: mentorData.address,
+      email: mentorData.email,
+      title: mentorData.title,
+      session_fee: mentorData.sessionFee,
+      profession: mentorData.profession,
+      subject: mentorData.subject,
+      phone_number: mentorData.phoneNumber,
+      qualification: mentorData.qualification,
+      mentor_image: mentorData.imageUrl,
+      class_room_id: mentorData.classId,
+    };
+
+    console.log("Creating mentor with data:", requestBody);
+
+    const response = await fetch(`${BACKEND_URL}/academic/mentor`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Create mentor failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    return response.json();
+  };
+
+  const onSubmit = async (formData: MentorFormData) => {
     try {
+      console.log("Starting mentor form submission...");
+      
       // Validate user authentication
       if (!isLoaded) {
         throw new Error("User authentication is loading...");
@@ -109,225 +198,79 @@ export function CreateMentorPage() {
         throw new Error("User not authenticated");
       }
       
-      console.log("User info:", {
-        userId: user.id,
-        email: user.primaryEmailAddress?.emailAddress,
-        publicMetadata: user.publicMetadata,
-        role: user.publicMetadata?.role
-      });
-
       // Check if user has admin role
       const userRole = user.publicMetadata?.role;
-      console.log("Checking user role:", {
-        userRole,
-        publicMetadata: user.publicMetadata,
-        isAdmin: userRole === 'ADMIN'
-      });
+      console.log("Checking user role:", userRole);
       
       if (userRole !== 'ADMIN') {
-        console.warn("User role is not admin:", userRole);
         throw new Error("You must have admin privileges to create mentors. Please contact an administrator.");
       }
 
-      // Validate required fields
-      if (!formData.clerkMentorId.trim()) {
-        throw new Error("Clerk Mentor ID is required");
-      }
-      if (!formData.firstName.trim()) {
-        throw new Error("First name is required");
-      }
-      if (!formData.lastName.trim()) {
-        throw new Error("Last name is required");
-      }
-      if (!formData.email.trim()) {
-        throw new Error("Email is required");
-      }
-      if (!formData.phoneNumber.trim()) {
-        throw new Error("Phone number is required");
-      }
-      if (!formData.address.trim()) {
-        throw new Error("Address is required");
-      }
-      if (!formData.title.trim()) {
-        throw new Error("Title is required");
-      }
-      if (!formData.sessionFee || isNaN(parseFloat(formData.sessionFee))) {
-        throw new Error("Valid session fee is required");
-      }
-      if (!formData.profession.trim()) {
-        throw new Error("Profession is required");
-      }
-      if (!formData.subject.trim()) {
-        throw new Error("Subject is required");
-      }
-      if (!formData.qualification.trim()) {
-        throw new Error("Qualification is required");
-      }
-      if (formData.selectedClasses.length === 0) {
-        throw new Error("At least one class must be selected");
+      let imageUrl = "";
+
+      // Upload image if provided
+      if (formData.image && formData.image.length > 0) {
+        const file = formData.image[0];
+        console.log("Uploading image:", file);
+        const fileResponse = await uploadFile(file);
+        imageUrl = fileResponse.url || fileResponse.data?.url || fileResponse.fileUrl || "";
+        console.log("Image uploaded, URL:", imageUrl);
       }
 
-      // Try different token approaches like in CreateClassPage
-      const token = await getSharedToken();
-      console.log("=== CREATE MENTOR TOKEN DEBUG ===");
-      console.log("Token:", token);
-      console.log("Token length:", token?.length);
-      
-      if (!token) {
-        throw new Error("You must be logged in to create a mentor.");
-      }
-
-      let imageUrl = formData.mentorImage;
-
-      // If a file is selected, upload it first
-      if (selectedFile) {
-        try {
-          imageUrl = await uploadImage(selectedFile);
-        } catch (error) {
-          console.error('Image upload failed:', error);
-          toast({
-            title: "Warning",
-            description: "Failed to process image, but mentor will be created without image.",
-          });
-          imageUrl = ""; // Continue without image
-        }
-      }
-
-      // Ensure we have an image URL (required by DTO)
-      if (!imageUrl) {
-        imageUrl = ""; // Set empty string as default since DTO requires non-null
-      }
-
-      // Create mentors for each selected class (since DTO expects one class_room_id per mentor)
+      // Create mentors for each selected class
       const createdMentors = [];
       
       for (const classId of formData.selectedClasses) {
         const mentorData = {
-          clerk_mentor_id: formData.clerkMentorId.trim(), // Use manual input instead of user.id
-          first_name: formData.firstName,
-          last_name: formData.lastName,
+          clerkMentorId: formData.clerkMentorId,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
           address: formData.address,
           email: formData.email,
           title: formData.title,
-          session_fee: parseFloat(formData.sessionFee),
+          sessionFee: parseFloat(formData.sessionFee),
           profession: formData.profession,
           subject: formData.subject,
-          phone_number: formData.phoneNumber,
+          phoneNumber: formData.phoneNumber,
           qualification: formData.qualification,
-          mentor_image: imageUrl,
-          class_room_id: classId, // Include class_room_id as required by DTO
+          imageUrl: imageUrl,
+          classId: classId,
         };
 
-        console.log("Creating mentor with data:", mentorData);
-
-        const mentorResponse = await fetch(`${BACKEND_URL}/academic/mentor`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(mentorData),
-        });
-
-        if (!mentorResponse.ok) {
-          const errorText = await mentorResponse.text();
-          throw new Error(`HTTP error! status: ${mentorResponse.status} - ${errorText}`);
-        }
-
-        // Handle response parsing with fallback
-        let mentor;
-        const responseText = await mentorResponse.text();
-        
-        if (!responseText.trim()) {
-          // If response is empty, create a success response
-          mentor = {
-            first_name: mentorData.first_name,
-            last_name: mentorData.last_name,
-            clerk_mentor_id: mentorData.clerk_mentor_id,
-            class_room_id: mentorData.class_room_id,
-          };
-        } else {
-          try {
-            mentor = JSON.parse(responseText);
-          } catch (parseError) {
-            // If JSON parsing fails but request was successful, create a fallback response
-            mentor = {
-              first_name: mentorData.first_name,
-              last_name: mentorData.last_name,
-              clerk_mentor_id: mentorData.clerk_mentor_id,
-              class_room_id: mentorData.class_room_id,
-            };
-          }
-        }
-
-        console.log("Mentor created successfully:", mentor);
-        createdMentors.push(mentor);
+        console.log("Creating mentor for class:", classId);
+        const result = await createMentor(mentorData);
+        createdMentors.push(result);
       }
 
-      // Show detailed success message
+      // Show success message
       const mentorName = `${formData.firstName} ${formData.lastName}`;
       const classNames = formData.selectedClasses.map(classId => {
         const foundClass = classes.find(c => c.class_room_id === classId);
         return foundClass ? foundClass.title : `Class ${classId}`;
       }).join(", ");
 
+      // Browser alert for success
+      alert("Mentor created successfully!");
+
       toast({
         title: "🎉 Mentor Created Successfully!",
         description: `${mentorName} has been successfully created and assigned to: ${classNames}`,
       });
 
-      console.log("✅ Mentor creation completed successfully:", {
-        mentorName,
-        classesAssigned: classNames,
-        totalMentors: createdMentors.length
-      });
-
-      // Reset form
-      setFormData({
-        clerkMentorId: "",
-        firstName: "",
-        lastName: "",
-        address: "",
-        email: "",
-        title: "",
-        sessionFee: "",
-        profession: "",
-        subject: "",
-        phoneNumber: "",
-        qualification: "",
-        mentorImage: "",
-        selectedClasses: [],
-      });
-      setSelectedFile(null);
-      setImagePreview("");
-    } catch (error) {
+      console.log("✅ Mentor creation completed successfully");
+      reset();
+    } catch (error: any) {
       console.error("Error creating mentor:", error);
-      
-      // Handle specific error types
-     
-      
-    
-    } finally {
-      setIsSubmitting(false);
+      const errorMessage = error.message || "Failed to create mentor.";
+      toast({ 
+        title: "Error", 
+        description: errorMessage, 
+        variant: "destructive" 
+      });
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
 
-  const handleClassSelection = (classId: number) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedClasses: prev.selectedClasses.includes(classId)
-        ? prev.selectedClasses.filter(id => id !== classId)
-        : [...prev.selectedClasses, classId],
-    }));
-  };
 
   return (
     <div>
@@ -340,19 +283,19 @@ export function CreateMentorPage() {
 
       <Card className="max-w-4xl">
         <div className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div>
               <Label htmlFor="clerkMentorId">Clerk Mentor ID *</Label>
               <Input
                 id="clerkMentorId"
-                name="clerkMentorId"
+                {...register("clerkMentorId")}
                 type="text"
-                required
-                value={formData.clerkMentorId}
-                onChange={handleChange}
                 placeholder="Enter the Clerk user ID for this mentor"
                 className="mt-1"
               />
+              {errors.clerkMentorId && (
+                <p className="mt-1 text-sm text-red-600">{errors.clerkMentorId.message}</p>
+              )}
               <p className="mt-1 text-sm text-gray-500">
                 The Clerk user ID that will be associated with this mentor
               </p>
@@ -363,106 +306,106 @@ export function CreateMentorPage() {
                 <Label htmlFor="firstName">First Name *</Label>
                 <Input
                   id="firstName"
-                  name="firstName"
+                  {...register("firstName")}
                   type="text"
-                  required
-                  value={formData.firstName}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.firstName && (
+                  <p className="mt-1 text-sm text-red-600">{errors.firstName.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="lastName">Last Name *</Label>
                 <Input
                   id="lastName"
-                  name="lastName"
+                  {...register("lastName")}
                   type="text"
-                  required
-                  value={formData.lastName}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.lastName && (
+                  <p className="mt-1 text-sm text-red-600">{errors.lastName.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="email">Email *</Label>
                 <Input
                   id="email"
-                  name="email"
+                  {...register("email")}
                   type="email"
-                  required
-                  value={formData.email}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.email && (
+                  <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="phoneNumber">Phone Number *</Label>
                 <Input
                   id="phoneNumber"
-                  name="phoneNumber"
+                  {...register("phoneNumber")}
                   type="tel"
-                  required
-                  value={formData.phoneNumber}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.phoneNumber && (
+                  <p className="mt-1 text-sm text-red-600">{errors.phoneNumber.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="title">Title *</Label>
                 <Input
                   id="title"
-                  name="title"
+                  {...register("title")}
                   type="text"
-                  required
-                  value={formData.title}
-                  onChange={handleChange}
                   placeholder="e.g., Mr., Ms., Dr."
                   className="mt-1"
                 />
+                {errors.title && (
+                  <p className="mt-1 text-sm text-red-600">{errors.title.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="sessionFee">Session Fee (USD) *</Label>
                 <Input
                   id="sessionFee"
-                  name="sessionFee"
+                  {...register("sessionFee")}
                   type="number"
                   step="0.01"
-                  required
-                  value={formData.sessionFee}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.sessionFee && (
+                  <p className="mt-1 text-sm text-red-600">{errors.sessionFee.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="profession">Profession *</Label>
                 <Input
                   id="profession"
-                  name="profession"
+                  {...register("profession")}
                   type="text"
-                  required
-                  value={formData.profession}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.profession && (
+                  <p className="mt-1 text-sm text-red-600">{errors.profession.message}</p>
+                )}
               </div>
 
               <div>
                 <Label htmlFor="qualification">Qualification *</Label>
                 <Input
                   id="qualification"
-                  name="qualification"
+                  {...register("qualification")}
                   type="text"
-                  required
-                  value={formData.qualification}
-                  onChange={handleChange}
                   className="mt-1"
                 />
+                {errors.qualification && (
+                  <p className="mt-1 text-sm text-red-600">{errors.qualification.message}</p>
+                )}
               </div>
             </div>
 
@@ -470,42 +413,41 @@ export function CreateMentorPage() {
               <Label htmlFor="address">Address *</Label>
               <Input
                 id="address"
-                name="address"
+                {...register("address")}
                 type="text"
-                required
-                value={formData.address}
-                onChange={handleChange}
                 className="mt-1"
               />
+              {errors.address && (
+                <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>
+              )}
             </div>
 
             <div>
               <Label htmlFor="subject">Subject/Bio *</Label>
               <textarea
                 id="subject"
-                name="subject"
-                required
-                value={formData.subject}
-                onChange={handleChange}
+                {...register("subject")}
                 rows={4}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="Describe the mentor's expertise and background..."
               />
+              {errors.subject && (
+                <p className="mt-1 text-sm text-red-600">{errors.subject.message}</p>
+              )}
             </div>
 
             <div>
-              <Label htmlFor="mentorImage">Mentor Image</Label>
+              <Label htmlFor="image">Mentor Image</Label>
               <div className="mt-1 space-y-4">
-                {/* File Upload Option */}
                 <div>
-                  <Label htmlFor="mentorImageFile" className="text-sm font-medium text-gray-700">
+                  <Label htmlFor="image" className="text-sm font-medium text-gray-700">
                     Upload Image from Device
                   </Label>
                   <input
-                    id="mentorImageFile"
+                    id="image"
+                    {...register("image")}
                     type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
                     className="mt-1 block w-full text-sm text-gray-500
                       file:mr-4 file:py-2 file:px-4
                       file:rounded-md file:border-0
@@ -513,39 +455,18 @@ export function CreateMentorPage() {
                       file:bg-blue-50 file:text-blue-700
                       hover:file:bg-blue-100"
                   />
-                </div>
-
-                {/* OR Divider */}
-                <div className="flex items-center">
-                  <div className="flex-grow border-t border-gray-300"></div>
-                  <span className="flex-shrink mx-4 text-gray-400 text-sm">OR</span>
-                  <div className="flex-grow border-t border-gray-300"></div>
-                </div>
-
-                {/* URL Input Option */}
-                <div>
-                  <Label htmlFor="mentorImageUrl" className="text-sm font-medium text-gray-700">
-                    Image URL
-                  </Label>
-                  <Input
-                    id="mentorImageUrl"
-                    name="mentorImage"
-                    type="url"
-                    value={formData.mentorImage}
-                    onChange={handleChange}
-                    placeholder="https://example.com/image.jpg"
-                    className="mt-1"
-                    disabled={!!selectedFile}
-                  />
+                  {selectedImageName && (
+                    <p className="text-sm text-blue-600 mt-1">Selected: {selectedImageName}</p>
+                  )}
                 </div>
 
                 {/* Image Preview */}
-                {(imagePreview || formData.mentorImage) && (
+                {imageFile && imageFile.length > 0 && (
                   <div className="mt-4">
                     <Label className="text-sm font-medium text-gray-700">Preview</Label>
                     <div className="mt-2 border rounded-lg p-4 bg-gray-50">
                       <img
-                        src={imagePreview || formData.mentorImage}
+                        src={URL.createObjectURL(imageFile[0])}
                         alt="Mentor preview"
                         className="max-w-full h-48 object-cover rounded-md mx-auto"
                         onError={(e) => {
@@ -555,27 +476,45 @@ export function CreateMentorPage() {
                     </div>
                   </div>
                 )}
+                {errors.image && (
+                  <p className="text-sm text-red-600">{String(errors.image.message)}</p>
+                )}
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                Upload an image from your device 
+                Upload an image from your device (JPG, PNG, WEBP up to 5MB)
               </p>
             </div>
 
             <div>
               <Label>Assign to Classes *</Label>
-              <div className="mt-2 space-y-2">
-                {classes.map((cls) => (
-                  <label key={cls.class_room_id} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.selectedClasses.includes(cls.class_room_id)}
-                      onChange={() => handleClassSelection(cls.class_room_id)}
-                      className="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    />
-                    <span className="ml-2 text-sm text-gray-900">{cls.title}</span>
-                  </label>
-                ))}
-              </div>
+              <Controller
+                name="selectedClasses"
+                control={control}
+                render={({ field }) => (
+                  <div className="mt-2 space-y-2">
+                    {classes.map((cls) => (
+                      <label key={cls.class_room_id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={field.value.includes(cls.class_room_id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              field.onChange([...field.value, cls.class_room_id]);
+                            } else {
+                              field.onChange(field.value.filter((id: number) => id !== cls.class_room_id));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        />
+                        <span className="ml-2 text-sm text-gray-900">{cls.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              />
+              {errors.selectedClasses && (
+                <p className="mt-1 text-sm text-red-600">{errors.selectedClasses.message}</p>
+              )}
               {classes.length === 0 && (
                 <p className="text-sm text-gray-500 mt-2">
                   No classes available. Create classes first before adding mentors.
@@ -587,28 +526,8 @@ export function CreateMentorPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  setFormData({
-                    clerkMentorId: "",
-                    firstName: "",
-                    lastName: "",
-                    address: "",
-                    email: "",
-                    title: "",
-                    sessionFee: "",
-                    profession: "",
-                    subject: "",
-                    phoneNumber: "",
-                    qualification: "",
-                    mentorImage: "",
-                    selectedClasses: [],
-                  });
-                  setSelectedFile(null);
-                  setImagePreview("");
-                  // Reset file input
-                  const fileInput = document.getElementById('mentorImageFile') as HTMLInputElement;
-                  if (fileInput) fileInput.value = '';
-                }}
+                onClick={() => reset()}
+                disabled={isSubmitting}
               >
                 Reset
               </Button>
