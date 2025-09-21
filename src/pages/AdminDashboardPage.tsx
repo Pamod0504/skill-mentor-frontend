@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, GraduationCap, Users, Calendar } from "lucide-react";
 import { BACKEND_URL } from "@/config/env";
-import { useAuth, useUser } from "@clerk/clerk-react";
+import { useAuth } from "@clerk/clerk-react";
 
 
 interface AdminStats {
@@ -24,8 +24,7 @@ export function AdminDashboardPage() {
     completedSessions: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
+  const { getToken } = useAuth();
 
   useEffect(() => {
     fetchAdminStats();
